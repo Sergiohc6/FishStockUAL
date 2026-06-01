@@ -90,6 +90,9 @@ dependencies {
     // Imagen perfil
     implementation(libs.coil.compose)
 
+    // Dependencia graficas
+    implementation("com.patrykandpatrick.vico:compose-m3:1.12.0")
+
     // Tests
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

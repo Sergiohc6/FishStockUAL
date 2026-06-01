@@ -2,7 +2,9 @@ package com.sergio.myapplication.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -17,6 +19,9 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @Composable
 fun MainScreen(navController: NavController) {
@@ -26,7 +31,6 @@ fun MainScreen(navController: NavController) {
     var username by remember { mutableStateOf("") }
     var showLogoutDialog by remember { mutableStateOf(false) }
 
-    // Cargar el nombre de usuario desde Firestore
     LaunchedEffect(Unit) {
         val uid = auth.currentUser?.uid ?: return@LaunchedEffect
         db.collection("users").document(uid).get()
@@ -35,7 +39,6 @@ fun MainScreen(navController: NavController) {
             }
     }
 
-    // Diálogo de cerrar sesión
     if (showLogoutDialog) {
         AlertDialog(
             onDismissRequest = { showLogoutDialog = false },
@@ -97,28 +100,36 @@ fun MainScreen(navController: NavController) {
                                 fontSize = 12.sp
                             )
                         }
-                    }
-                    IconButton(onClick = { showLogoutDialog = true }) {
-                        Icon(
-                            imageVector = Icons.Default.Logout,
-                            contentDescription = "Cerrar sesión",
-                            tint = Color(0xFF4a7ab5)
+                        Text(
+                            text = SimpleDateFormat("EEEE, d MMM yyyy", Locale("es"))
+                                .format(Date()),
+                            color = Color(0xFF2d5080),
+                            fontSize = 11.sp
                         )
                     }
-                    IconButton(onClick = { navController.navigate("perfil") }) {
-                        Icon(
-                            imageVector = Icons.Default.AccountCircle,
-                            contentDescription = "Perfil",
-                            tint = Color(0xFF4a7ab5)
-                        )
+                    Row {
+                        IconButton(onClick = { navController.navigate("perfil") }) {
+                            Icon(
+                                imageVector = Icons.Default.AccountCircle,
+                                contentDescription = "Perfil",
+                                tint = Color(0xFF4a7ab5)
+                            )
+                        }
+                        IconButton(onClick = { showLogoutDialog = true }) {
+                            Icon(
+                                imageVector = Icons.Default.Logout,
+                                contentDescription = "Cerrar sesión",
+                                tint = Color(0xFF4a7ab5)
+                            )
+                        }
                     }
                 }
             }
 
-            // Contenido principal — tarjetas de navegación
             Column(
                 modifier = Modifier
                     .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
                     .padding(20.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
@@ -167,11 +178,11 @@ fun MainScreen(navController: NavController) {
                     )
                     MenuCard(
                         modifier = Modifier.weight(1f),
-                        icon = Icons.Default.Science,
-                        title = "Formulaciones",
-                        subtitle = "Gestionar fórmulas",
-                        color = Color(0xFF3a1a5a),
-                        onClick = { /* navController.navigate("formulaciones") */ }
+                        icon = Icons.Default.QrCode,
+                        title = "Códigos QR",
+                        subtitle = "Escanear / Generar",
+                        color = Color(0xFF1a4a4a),
+                        onClick = { navController.navigate("qr") }
                     )
                 }
 
@@ -182,19 +193,19 @@ fun MainScreen(navController: NavController) {
                 ) {
                     MenuCard(
                         modifier = Modifier.weight(1f),
-                        icon = Icons.Default.QrCode,
-                        title = "Códigos QR",
-                        subtitle = "Escanear / Generar",
-                        color = Color(0xFF1a4a4a),
-                        onClick = { navController.navigate("qr") }
-                    )
-                    MenuCard(
-                        modifier = Modifier.weight(1f),
                         icon = Icons.Default.People,
                         title = "Proveedores",
                         subtitle = "Ver proveedores",
                         color = Color(0xFF4a3a1a),
                         onClick = { navController.navigate("proveedores") }
+                    )
+                    MenuCard(
+                        modifier = Modifier.weight(1f),
+                        icon = Icons.Default.History,
+                        title = "Historial",
+                        subtitle = "Entradas y salidas",
+                        color = Color(0xFF1a3a5a),
+                        onClick = { navController.navigate("historial") }
                     )
                 }
 
@@ -205,11 +216,11 @@ fun MainScreen(navController: NavController) {
                 ) {
                     MenuCard(
                         modifier = Modifier.weight(1f),
-                        icon = Icons.Default.History,
-                        title = "Historial",
-                        subtitle = "Entradas y salidas",
+                        icon = Icons.Default.BarChart,
+                        title = "Estadísticas",
+                        subtitle = "Ver gráficas",
                         color = Color(0xFF1a3a5a),
-                        onClick = { navController.navigate("historial") }
+                        onClick = { navController.navigate("estadisticas") }
                     )
                     MenuCard(
                         modifier = Modifier.weight(1f),
@@ -221,6 +232,7 @@ fun MainScreen(navController: NavController) {
                     )
                 }
 
+                Spacer(modifier = Modifier.height(8.dp))
             }
         }
     }

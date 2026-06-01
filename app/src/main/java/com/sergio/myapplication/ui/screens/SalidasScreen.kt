@@ -21,6 +21,8 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.google.api.client.googleapis.extensions.android.gms.auth.UserRecoverableAuthIOException
 import com.google.firebase.auth.FirebaseAuth
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
 import com.sergio.myapplication.data.GoogleSheetsService
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -28,13 +30,17 @@ import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SalidasScreen(navController: NavController) {
+fun SalidasScreen(
+    navController: NavController,
+    categoriaInicial: String = "",
+    materialInicial: String = ""
+) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val sheetsService = remember { GoogleSheetsService(context) }
     val scope = rememberCoroutineScope()
 
-    var tipo by remember { mutableStateOf("") }
-    var descripcion by remember { mutableStateOf("") }
+    var tipo by remember { mutableStateOf(categoriaInicial) }
+    var descripcion by remember { mutableStateOf(materialInicial) }
     var cantidad by remember { mutableStateOf("") }
     var proyecto by remember { mutableStateOf("") }
     var observaciones by remember { mutableStateOf("") }
@@ -44,6 +50,7 @@ fun SalidasScreen(navController: NavController) {
     var successMessage by remember { mutableStateOf("") }
     var errorMessage by remember { mutableStateOf("") }
     var pendingAuthIntent by remember { mutableStateOf<Intent?>(null) }
+    var showConfirmDialog by remember { mutableStateOf(false) }
 
     var tipoExpanded by remember { mutableStateOf(false) }
     var descripcionExpanded by remember { mutableStateOf(false) }
@@ -59,10 +66,22 @@ fun SalidasScreen(navController: NavController) {
         pendingAuthIntent?.let { authLauncher.launch(it) }
     }
 
+    val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
+        if (result.contents != null) {
+            val contenido = result.contents
+            if (contenido.contains("|")) {
+                val parts = contenido.split("|")
+                tipo = parts[0].trim()
+                descripcion = parts[1].trim()
+            } else {
+                descripcion = contenido
+            }
+        }
+    }
+
     fun cargarMateriales(categoria: String) {
         scope.launch {
             isLoadingMateriales = true
-            descripcion = ""
             try {
                 val accountName = FirebaseAuth.getInstance().currentUser?.email ?: ""
                 val rows = sheetsService.readSheet(accountName, categoria)
@@ -79,17 +98,14 @@ fun SalidasScreen(navController: NavController) {
         }
     }
 
-    fun registrarSalida() {
-        if (tipo.isEmpty() || descripcion.isEmpty() || cantidad.isEmpty()) {
-            errorMessage = "Tipo, descripción y cantidad son obligatorios"
-            return
+    LaunchedEffect(categoriaInicial) {
+        if (categoriaInicial.isNotEmpty()) {
+            cargarMateriales(categoriaInicial)
         }
-        val cantidadDouble = cantidad.toDoubleOrNull()
-        if (cantidadDouble == null || cantidadDouble <= 0) {
-            errorMessage = "La cantidad debe ser un número válido mayor que 0"
-            return
-        }
+    }
 
+    fun registrarSalida() {
+        val cantidadDouble = cantidad.toDoubleOrNull() ?: return
         scope.launch {
             isLoading = true
             errorMessage = ""
@@ -97,7 +113,6 @@ fun SalidasScreen(navController: NavController) {
             try {
                 val accountName = FirebaseAuth.getInstance().currentUser?.email ?: ""
                 val fecha = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date())
-
                 sheetsService.addSalida(
                     accountName = accountName,
                     fecha = fecha,
@@ -107,7 +122,6 @@ fun SalidasScreen(navController: NavController) {
                     proyecto = proyecto,
                     observaciones = observaciones
                 )
-
                 successMessage = "Salida registrada correctamente"
                 tipo = ""
                 descripcion = ""
@@ -115,7 +129,6 @@ fun SalidasScreen(navController: NavController) {
                 proyecto = ""
                 observaciones = ""
                 materiales = emptyList()
-
             } catch (e: UserRecoverableAuthIOException) {
                 pendingAuthIntent = e.intent
             } catch (e: Exception) {
@@ -124,6 +137,40 @@ fun SalidasScreen(navController: NavController) {
                 isLoading = false
             }
         }
+    }
+
+    // Diálogo de confirmación
+    if (showConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showConfirmDialog = false },
+            containerColor = Color(0xFF0f1e35),
+            title = {
+                Text("Confirmar salida", color = Color(0xFFe8f4ff), fontWeight = FontWeight.Medium)
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("¿Confirmas el registro de la siguiente salida?", color = Color(0xFF4a7ab5), fontSize = 13.sp)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("Material: $descripcion", color = Color(0xFFe8f4ff), fontSize = 13.sp)
+                    Text("Categoría: $tipo", color = Color(0xFFe8f4ff), fontSize = 13.sp)
+                    Text("Cantidad: $cantidad kg", color = Color(0xFFe8f4ff), fontSize = 13.sp)
+                    if (proyecto.isNotEmpty()) Text("Proyecto: $proyecto", color = Color(0xFFe8f4ff), fontSize = 13.sp)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showConfirmDialog = false
+                    registrarSalida()
+                }) {
+                    Text("Confirmar", color = Color(0xFFe24b4a))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showConfirmDialog = false }) {
+                    Text("Cancelar", color = Color(0xFF4a7ab5))
+                }
+            }
+        )
     }
 
     Box(
@@ -153,7 +200,17 @@ fun SalidasScreen(navController: NavController) {
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold
                     )
-                    Spacer(modifier = Modifier.size(48.dp))
+                    IconButton(onClick = {
+                        val options = ScanOptions().apply {
+                            setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+                            setPrompt("Escanea el QR del material")
+                            setBeepEnabled(true)
+                            setOrientationLocked(false)
+                        }
+                        scanLauncher.launch(options)
+                    }) {
+                        Icon(Icons.Default.QrCodeScanner, null, tint = Color(0xFF5b9bd5))
+                    }
                 }
             }
 
@@ -165,7 +222,6 @@ fun SalidasScreen(navController: NavController) {
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
 
-                // Fecha automática
                 Card(
                     colors = CardDefaults.cardColors(containerColor = Color(0xFF0f1e35)),
                     shape = RoundedCornerShape(12.dp),
@@ -175,11 +231,7 @@ fun SalidasScreen(navController: NavController) {
                         modifier = Modifier.padding(16.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                            Icons.Default.CalendarToday, null,
-                            tint = Color(0xFF5b9bd5),
-                            modifier = Modifier.size(20.dp)
-                        )
+                        Icon(Icons.Default.CalendarToday, null, tint = Color(0xFF5b9bd5), modifier = Modifier.size(20.dp))
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = "Fecha: ${SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date())}",
@@ -189,13 +241,24 @@ fun SalidasScreen(navController: NavController) {
                     }
                 }
 
-                // Selector de categoría
-                Text(
-                    text = "Categoría *",
-                    color = Color(0xFF4a7ab5),
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Medium
-                )
+                if (categoriaInicial.isNotEmpty() || materialInicial.isNotEmpty()) {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF1a3a5a)),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.QrCode, null, tint = Color(0xFF5b9bd5), modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Material cargado desde QR", color = Color(0xFF5b9bd5), fontSize = 13.sp)
+                        }
+                    }
+                }
+
+                Text(text = "Categoría *", color = Color(0xFF4a7ab5), fontSize = 13.sp, fontWeight = FontWeight.Medium)
                 ExposedDropdownMenuBox(
                     expanded = tipoExpanded,
                     onExpandedChange = { tipoExpanded = it }
@@ -205,12 +268,8 @@ fun SalidasScreen(navController: NavController) {
                         onValueChange = {},
                         readOnly = true,
                         placeholder = { Text("Selecciona categoría", color = Color(0xFF4a7ab5)) },
-                        trailingIcon = {
-                            ExposedDropdownMenuDefaults.TrailingIcon(expanded = tipoExpanded)
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .menuAnchor(),
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = tipoExpanded) },
+                        modifier = Modifier.fillMaxWidth().menuAnchor(),
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedTextColor = Color.White,
                             unfocusedTextColor = Color.White,
@@ -229,6 +288,7 @@ fun SalidasScreen(navController: NavController) {
                                 onClick = {
                                     tipo = categoria
                                     tipoExpanded = false
+                                    descripcion = ""
                                     cargarMateriales(categoria)
                                 }
                             )
@@ -236,37 +296,18 @@ fun SalidasScreen(navController: NavController) {
                     }
                 }
 
-                // Selector de material
-                Text(
-                    text = "Material *",
-                    color = Color(0xFF4a7ab5),
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Medium
-                )
+                Text(text = "Material *", color = Color(0xFF4a7ab5), fontSize = 13.sp, fontWeight = FontWeight.Medium)
 
                 if (isLoadingMateriales) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(8.dp)
-                    ) {
-                        CircularProgressIndicator(
-                            color = Color(0xFF5b9bd5),
-                            modifier = Modifier.size(16.dp),
-                            strokeWidth = 2.dp
-                        )
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(8.dp)) {
+                        CircularProgressIndicator(color = Color(0xFF5b9bd5), modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Cargando materiales...",
-                            color = Color(0xFF4a7ab5),
-                            fontSize = 12.sp
-                        )
+                        Text("Cargando materiales...", color = Color(0xFF4a7ab5), fontSize = 12.sp)
                     }
                 } else {
                     ExposedDropdownMenuBox(
                         expanded = descripcionExpanded,
-                        onExpandedChange = {
-                            if (tipo.isNotEmpty()) descripcionExpanded = it
-                        }
+                        onExpandedChange = { if (tipo.isNotEmpty()) descripcionExpanded = it }
                     ) {
                         OutlinedTextField(
                             value = descripcion,
@@ -274,19 +315,14 @@ fun SalidasScreen(navController: NavController) {
                             readOnly = true,
                             placeholder = {
                                 Text(
-                                    if (tipo.isEmpty()) "Selecciona primero una categoría"
-                                    else "Selecciona material",
+                                    if (tipo.isEmpty()) "Selecciona primero una categoría" else "Selecciona material",
                                     color = Color(0xFF4a7ab5)
                                 )
                             },
                             trailingIcon = {
-                                if (tipo.isNotEmpty()) {
-                                    ExposedDropdownMenuDefaults.TrailingIcon(expanded = descripcionExpanded)
-                                }
+                                if (tipo.isNotEmpty()) ExposedDropdownMenuDefaults.TrailingIcon(expanded = descripcionExpanded)
                             },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .menuAnchor(),
+                            modifier = Modifier.fillMaxWidth().menuAnchor(),
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedTextColor = Color.White,
                                 unfocusedTextColor = Color.White,
@@ -317,13 +353,7 @@ fun SalidasScreen(navController: NavController) {
                     }
                 }
 
-                // Cantidad
-                Text(
-                    text = "Cantidad (kg) *",
-                    color = Color(0xFF4a7ab5),
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Medium
-                )
+                Text(text = "Cantidad (kg) *", color = Color(0xFF4a7ab5), fontSize = 13.sp, fontWeight = FontWeight.Medium)
                 OutlinedTextField(
                     value = cantidad,
                     onValueChange = { cantidad = it },
@@ -341,13 +371,7 @@ fun SalidasScreen(navController: NavController) {
                     singleLine = true
                 )
 
-                // Proyecto
-                Text(
-                    text = "Proyecto",
-                    color = Color(0xFF4a7ab5),
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Medium
-                )
+                Text(text = "Proyecto", color = Color(0xFF4a7ab5), fontSize = 13.sp, fontWeight = FontWeight.Medium)
                 OutlinedTextField(
                     value = proyecto,
                     onValueChange = { proyecto = it },
@@ -362,20 +386,12 @@ fun SalidasScreen(navController: NavController) {
                     singleLine = true
                 )
 
-                // Observaciones
-                Text(
-                    text = "Observaciones",
-                    color = Color(0xFF4a7ab5),
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Medium
-                )
+                Text(text = "Observaciones", color = Color(0xFF4a7ab5), fontSize = 13.sp, fontWeight = FontWeight.Medium)
                 OutlinedTextField(
                     value = observaciones,
                     onValueChange = { observaciones = it },
                     placeholder = { Text("Observaciones opcionales", color = Color(0xFF4a7ab5)) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(100.dp),
+                    modifier = Modifier.fillMaxWidth().height(100.dp),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = Color.White,
                         unfocusedTextColor = Color.White,
@@ -391,10 +407,7 @@ fun SalidasScreen(navController: NavController) {
                         shape = RoundedCornerShape(8.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Row(
-                            modifier = Modifier.padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
+                        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.Warning, null, tint = Color(0xFFe24b4a), modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(text = errorMessage, color = Color(0xFFe24b4a), fontSize = 13.sp)
@@ -408,10 +421,7 @@ fun SalidasScreen(navController: NavController) {
                         shape = RoundedCornerShape(8.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Row(
-                            modifier = Modifier.padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
+                        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF4a9a40), modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(text = successMessage, color = Color(0xFF4a9a40), fontSize = 13.sp)
@@ -420,31 +430,27 @@ fun SalidasScreen(navController: NavController) {
                 }
 
                 Button(
-                    onClick = { registrarSalida() },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(52.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF5a2a1a)
-                    ),
+                    onClick = {
+                        if (tipo.isEmpty() || descripcion.isEmpty() || cantidad.isEmpty()) {
+                            errorMessage = "Tipo, descripción y cantidad son obligatorios"
+                        } else if (cantidad.toDoubleOrNull() == null || cantidad.toDouble() <= 0) {
+                            errorMessage = "La cantidad debe ser un número válido mayor que 0"
+                        } else {
+                            errorMessage = ""
+                            showConfirmDialog = true
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth().height(52.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF5a2a1a)),
                     shape = RoundedCornerShape(12.dp),
                     enabled = !isLoading
                 ) {
                     if (isLoading) {
-                        CircularProgressIndicator(
-                            color = Color.White,
-                            modifier = Modifier.size(20.dp),
-                            strokeWidth = 2.dp
-                        )
+                        CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
                     } else {
                         Icon(Icons.Default.Remove, null, tint = Color.White, modifier = Modifier.size(20.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Registrar Salida",
-                            color = Color.White,
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Medium
-                        )
+                        Text("Registrar Salida", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Medium)
                     }
                 }
 

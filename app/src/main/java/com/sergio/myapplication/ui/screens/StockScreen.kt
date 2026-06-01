@@ -9,9 +9,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -40,6 +38,12 @@ fun StockScreen(navController: NavController) {
     var errorMessage by remember { mutableStateOf("") }
     var categoriaSeleccionada by remember { mutableStateOf("HARINAS") }
     var pendingAuthIntent by remember { mutableStateOf<Intent?>(null) }
+    var searchQuery by remember { mutableStateOf("") }
+    var mostrarBuscador by remember { mutableStateOf(false) }
+    var soloStockCritico by remember { mutableStateOf(false) }
+
+    // Stock mínimo por defecto en kg
+    val stockMinimo = 5.0
 
     val colorCategoria = mapOf(
         "HARINAS" to Color(0xFF1a4a8a),
@@ -129,6 +133,18 @@ fun StockScreen(navController: NavController) {
         cargarMateriales(categoriaSeleccionada)
     }
 
+    // Filtrar materiales por búsqueda y stock crítico
+    val materialesFiltrados = materiales.filter { material ->
+        val coincideBusqueda = searchQuery.isEmpty() ||
+                material.nombre.contains(searchQuery, ignoreCase = true) ||
+                material.proveedor.contains(searchQuery, ignoreCase = true)
+        val coincideStock = !soloStockCritico || material.stock <= stockMinimo
+        coincideBusqueda && coincideStock
+    }
+
+    // Contar materiales con stock crítico
+    val stockCriticoCount = materiales.count { it.stock <= stockMinimo }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -136,6 +152,7 @@ fun StockScreen(navController: NavController) {
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
 
+            // TopBar
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -156,8 +173,89 @@ fun StockScreen(navController: NavController) {
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold
                     )
-                    IconButton(onClick = { cargarMateriales(categoriaSeleccionada) }) {
-                        Icon(Icons.Default.Refresh, null, tint = Color(0xFF5b9bd5))
+                    Row {
+                        // Botón buscador
+                        IconButton(onClick = {
+                            mostrarBuscador = !mostrarBuscador
+                            if (!mostrarBuscador) searchQuery = ""
+                        }) {
+                            Icon(
+                                if (mostrarBuscador) Icons.Default.SearchOff else Icons.Default.Search,
+                                null,
+                                tint = if (mostrarBuscador) Color(0xFF5b9bd5) else Color(0xFF4a7ab5)
+                            )
+                        }
+                        IconButton(onClick = { cargarMateriales(categoriaSeleccionada) }) {
+                            Icon(Icons.Default.Refresh, null, tint = Color(0xFF5b9bd5))
+                        }
+                    }
+                }
+            }
+
+            // Buscador expandible
+            if (mostrarBuscador) {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text("Buscar material o proveedor...", color = Color(0xFF4a7ab5)) },
+                    leadingIcon = { Icon(Icons.Default.Search, null, tint = Color(0xFF5b9bd5)) },
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { searchQuery = "" }) {
+                                Icon(Icons.Default.Clear, null, tint = Color(0xFF4a7ab5))
+                            }
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF0f1e35))
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        focusedBorderColor = Color(0xFF5b9bd5),
+                        unfocusedBorderColor = Color(0xFF1e3a5f)
+                    ),
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp)
+                )
+            }
+
+            // Alerta de stock crítico
+            if (stockCriticoCount > 0 && !isLoading) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF3a1a1a)),
+                    shape = RoundedCornerShape(10.dp),
+                    onClick = { soloStockCritico = !soloStockCritico }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Default.Warning,
+                                null,
+                                tint = Color(0xFFe24b4a),
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "$stockCriticoCount materiales con stock crítico ( ≤ ${stockMinimo.toInt()} kg) ",
+                                color = Color(0xFFe24b4a),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                        Text(
+                            text = if (soloStockCritico) "Ver todos" else "Ver",
+                            color = Color(0xFFe24b4a),
+                            fontSize = 11.sp
+                        )
                     }
                 }
             }
@@ -171,7 +269,11 @@ fun StockScreen(navController: NavController) {
                 categorias.forEach { categoria ->
                     Tab(
                         selected = categoriaSeleccionada == categoria,
-                        onClick = { categoriaSeleccionada = categoria },
+                        onClick = {
+                            categoriaSeleccionada = categoria
+                            searchQuery = ""
+                            soloStockCritico = false
+                        },
                         text = {
                             Text(
                                 text = categoria,
@@ -188,49 +290,28 @@ fun StockScreen(navController: NavController) {
 
             when {
                 isLoading -> {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             CircularProgressIndicator(color = Color(0xFF5b9bd5))
                             Spacer(modifier = Modifier.height(12.dp))
-                            Text(
-                                text = "Cargando $categoriaSeleccionada...",
-                                color = Color(0xFF4a7ab5),
-                                fontSize = 13.sp
-                            )
+                            Text("Cargando $categoriaSeleccionada...", color = Color(0xFF4a7ab5), fontSize = 13.sp)
                         }
                     }
                 }
 
                 errorMessage.isNotEmpty() -> {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             modifier = Modifier.padding(32.dp)
                         ) {
-                            Icon(
-                                Icons.Default.Warning,
-                                null,
-                                tint = Color(0xFFe24b4a),
-                                modifier = Modifier.size(48.dp)
-                            )
+                            Icon(Icons.Default.Warning, null, tint = Color(0xFFe24b4a), modifier = Modifier.size(48.dp))
                             Spacer(modifier = Modifier.height(12.dp))
-                            Text(
-                                text = errorMessage,
-                                color = Color(0xFFe24b4a),
-                                fontSize = 13.sp
-                            )
+                            Text(text = errorMessage, color = Color(0xFFe24b4a), fontSize = 13.sp)
                             Spacer(modifier = Modifier.height(16.dp))
                             Button(
                                 onClick = { cargarMateriales(categoriaSeleccionada) },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = Color(0xFF1a4a8a)
-                                )
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1a4a8a))
                             ) {
                                 Text("Reintentar", color = Color(0xFFe8f4ff))
                             }
@@ -238,16 +319,25 @@ fun StockScreen(navController: NavController) {
                     }
                 }
 
-                materiales.isEmpty() -> {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "No hay materiales en $categoriaSeleccionada",
-                            color = Color(0xFF4a7ab5),
-                            fontSize = 13.sp
-                        )
+                materialesFiltrados.isEmpty() -> {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                Icons.Default.SearchOff,
+                                null,
+                                tint = Color(0xFF4a7ab5),
+                                modifier = Modifier.size(48.dp)
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                text = if (searchQuery.isNotEmpty())
+                                    "No se encontró \"$searchQuery\""
+                                else
+                                    "No hay materiales en $categoriaSeleccionada",
+                                color = Color(0xFF4a7ab5),
+                                fontSize = 13.sp
+                            )
+                        }
                     }
                 }
 
@@ -266,22 +356,23 @@ fun StockScreen(navController: NavController) {
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = "${materiales.size} materiales",
+                                    text = "${materialesFiltrados.size} materiales",
                                     color = Color(0xFF4a7ab5),
                                     fontSize = 12.sp
                                 )
                                 Text(
-                                    text = "Stock total: ${"%.1f".format(materiales.sumOf { it.stock })} kg",
+                                    text = "Stock total: ${"%.1f".format(materialesFiltrados.sumOf { it.stock })} kg",
                                     color = Color(0xFF4a7ab5),
                                     fontSize = 12.sp
                                 )
                             }
                         }
 
-                        items(materiales) { material ->
+                        items(materialesFiltrados) { material ->
                             MaterialCard(
                                 material = material,
-                                color = colorCategoria[categoriaSeleccionada] ?: Color(0xFF1a4a8a)
+                                color = colorCategoria[categoriaSeleccionada] ?: Color(0xFF1a4a8a),
+                                stockMinimo = stockMinimo
                             )
                         }
                     }
@@ -292,8 +383,10 @@ fun StockScreen(navController: NavController) {
 }
 
 @Composable
-fun MaterialCard(material: Material, color: Color) {
+fun MaterialCard(material: Material, color: Color, stockMinimo: Double = 5.0) {
     var expanded by remember { mutableStateOf(false) }
+    val esCritico = material.stock <= stockMinimo && material.stock > 0
+    val esVacio = material.stock <= 0
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -307,24 +400,46 @@ fun MaterialCard(material: Material, color: Color) {
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = material.nombre,
-                    color = Color(0xFFe8f4ff),
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium,
-                    modifier = Modifier.weight(1f)
-                )
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Icono de alerta si stock crítico
+                    if (esCritico) {
+                        Icon(
+                            Icons.Default.Warning,
+                            null,
+                            tint = Color(0xFFf0a030),
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                    }
+                    Text(
+                        text = material.nombre,
+                        color = Color(0xFFe8f4ff),
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
                 Box(
                     modifier = Modifier
                         .background(
-                            color = if (material.stock <= 0) Color(0xFF3a1a1a) else color,
+                            color = when {
+                                esVacio -> Color(0xFF3a1a1a)
+                                esCritico -> Color(0xFF3a2a0a)
+                                else -> color
+                            },
                             shape = RoundedCornerShape(8.dp)
                         )
                         .padding(horizontal = 10.dp, vertical = 4.dp)
                 ) {
                     Text(
                         text = "${"%.1f".format(material.stock)} kg",
-                        color = if (material.stock <= 0) Color(0xFFe24b4a) else Color(0xFFe8f4ff),
+                        color = when {
+                            esVacio -> Color(0xFFe24b4a)
+                            esCritico -> Color(0xFFf0a030)
+                            else -> Color(0xFFe8f4ff)
+                        },
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium
                     )
@@ -345,6 +460,14 @@ fun MaterialCard(material: Material, color: Color) {
                 if (material.observaciones.isNotBlank()) {
                     DetalleRow("Obs.", material.observaciones)
                 }
+                if (esCritico) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "⚠ Stock por debajo del mínimo recomendado (${stockMinimo.toInt()} kg)",
+                        color = Color(0xFFf0a030),
+                        fontSize = 11.sp
+                    )
+                }
             }
         }
     }
@@ -357,16 +480,7 @@ fun DetalleRow(label: String, value: String) {
             .fillMaxWidth()
             .padding(vertical = 3.dp)
     ) {
-        Text(
-            text = "$label: ",
-            color = Color(0xFF4a7ab5),
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Medium
-        )
-        Text(
-            text = value,
-            color = Color(0xFF8ab8e8),
-            fontSize = 12.sp
-        )
+        Text(text = "$label: ", color = Color(0xFF4a7ab5), fontSize = 12.sp, fontWeight = FontWeight.Medium)
+        Text(text = value, color = Color(0xFF8ab8e8), fontSize = 12.sp)
     }
 }
